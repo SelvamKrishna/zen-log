@@ -1,13 +1,15 @@
 #pragma once
 
+#include <array>
 #include <format>
 #include <iostream>
+#include <string>
 
 namespace zen {
 
     inline static constexpr std::string_view ANSI_RESET = "\033[0m";
 
-    struct ansi_gaurd {
+    struct ansi_gaurd final {
     private:
         std::ostream& _os;
 
@@ -16,7 +18,7 @@ namespace zen {
         ~ansi_gaurd() noexcept { this->_os << ANSI_RESET; }
     };
 
-    struct ansi_rgb {
+    struct ansi_rgb final {
     private:
         uint8_t _r, _g, _b;
 
@@ -34,7 +36,7 @@ namespace zen {
         }
     };
 
-    struct ansi_256 {
+    struct ansi_256 final {
     private:
         uint8_t _code;
 
@@ -102,13 +104,75 @@ namespace zen {
         return os << "\033[" << static_cast<int>(code) << "m";
     }
 
+    template  <typename T>
+    concept ansi_support =
+        std::is_same_v<T, ansi_style> ||
+        std::is_same_v<T, ansi_color> ||
+        std::is_same_v<T, int>
+    ;
+
+    struct _ansi_combo final {
+    private:
+        static constexpr int INVALID_CODE = -1;
+        std::array<int, 8> _codes;
+
+    public:
+        explicit constexpr _ansi_combo(int c0, int c1) noexcept
+        : _codes {
+            c0          , c1          , INVALID_CODE, INVALID_CODE,
+            INVALID_CODE, INVALID_CODE, INVALID_CODE, INVALID_CODE
+        } {}
+
+        template <ansi_support T>
+        friend _ansi_combo operator & (_ansi_combo combo, T code)
+        {
+            for (int& c : combo._codes)
+            {
+                if (c == INVALID_CODE)
+                {
+                    c = static_cast<int>(code);
+                    break;
+                }
+            }
+
+            return combo;
+        }
+
+        [[nodiscard]] std::string build() const noexcept
+        {
+            if (this->_codes[0] == INVALID_CODE) return "";
+
+            std::string result = "\033[" + std::to_string(this->_codes[0]);
+
+            for (size_t i = 1; i < this->_codes.size(); ++i)
+            {
+                int code = this->_codes[i];
+                if (code == INVALID_CODE) break;
+                result += ';' + std::to_string(code);
+            }
+
+            return result + 'm';
+        }
+    };
+
+    template <ansi_support ANSI_T, ansi_support ANSI_U>
+    inline _ansi_combo operator & (ANSI_T c0, ANSI_U c1)
+    {
+        return _ansi_combo{static_cast<int>(c0), static_cast<int>(c1)};
+    }
+
+    inline std::ostream& operator << (std::ostream& os, const _ansi_combo& combo)
+    {
+        return os << combo.build();
+    }
+
 } // namespace zen
 
 template <>
 struct std::formatter<::zen::ansi_style> {
-    constexpr auto parse(std::format_parse_context &ctx) { return ctx.begin(); }
+    constexpr auto parse(std::format_parse_context& ctx) { return ctx.begin(); }
 
-    auto format(const ::zen::ansi_style &code, std::format_context &ctx) const
+    auto format(const ::zen::ansi_style& code, std::format_context& ctx) const
     {
         return std::format_to(ctx.out(), "\033[{}m", static_cast<int>(code));
     }
@@ -116,10 +180,20 @@ struct std::formatter<::zen::ansi_style> {
 
 template <>
 struct std::formatter<::zen::ansi_color> {
-    constexpr auto parse(std::format_parse_context &ctx) { return ctx.begin(); }
+    constexpr auto parse(std::format_parse_context& ctx) { return ctx.begin(); }
 
-    auto format(const ::zen::ansi_color &code, std::format_context &ctx) const
+    auto format(const ::zen::ansi_color& code, std::format_context& ctx) const
     {
         return std::format_to(ctx.out(), "\033[{}m", static_cast<int>(code));
+    }
+};
+
+template <>
+struct std::formatter<::zen::_ansi_combo> {
+    constexpr auto parse(std::format_parse_context& ctx) { return ctx.begin(); }
+
+    auto format(const ::zen::_ansi_combo& combo, std::format_context& ctx) const
+    {
+        return std::format_to(ctx.out(), "{}", combo.build());
     }
 };
