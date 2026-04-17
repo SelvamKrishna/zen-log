@@ -15,7 +15,7 @@ namespace zen {
 
     public:
         explicit ansi_gaurd(std::ostream& os = std::cout) noexcept : _os {os} { this->_os << ANSI_RESET; }
-        ~ansi_gaurd() noexcept { this->_os << ANSI_RESET; }
+        ~ansi_gaurd() noexcept { this->_os << ANSI_RESET << std::endl; }
     };
 
     struct ansi_rgb final {
@@ -41,7 +41,7 @@ namespace zen {
         uint8_t _code;
 
     public:
-        explicit ansi_256(uint8_t code) : _code(code) {}
+        explicit ansi_256(uint8_t code) : _code {code} {}
 
         [[nodiscard]] std::string fg() const noexcept { return std::format("\033[38;5;{}m", this->_code); }
         [[nodiscard]] std::string bg() const noexcept { return std::format("\033[48;5;{}m", this->_code); }
@@ -58,11 +58,6 @@ namespace zen {
         HIDDEN    = 8,
         STRIKE    = 9
     };
-
-    inline std::ostream& operator << (std::ostream& os, const ansi_style& code) noexcept
-    {
-        return os << "\033[" << static_cast<int>(code) << "m";
-    }
 
     enum class ansi_color {
         BLACK         = 30,
@@ -99,38 +94,33 @@ namespace zen {
         BG_EX_WHITE   = 107,
     };
 
-    inline std::ostream& operator << (std::ostream& os, const ansi_color& code) noexcept
-    {
-        return os << "\033[" << static_cast<int>(code) << "m";
-    }
-
     template  <typename T>
-    concept ansi_support =
-        std::is_same_v<T, ansi_style> ||
-        std::is_same_v<T, ansi_color> ||
-        std::is_same_v<T, int>
-    ;
+    concept ansi_type = std::is_same_v<T, ansi_style> || std::is_same_v<T, ansi_color>;
+
+    template  <ansi_type T>
+    inline std::ostream& operator << (std::ostream& os, const T& code) noexcept
+    {
+        return os << "\033[" << static_cast<int>(code) << 'm';
+    }
 
     struct _ansi_combo final {
     private:
         static constexpr int INVALID_CODE = -1;
-        std::array<int, 8> _codes;
+        std::array<int, 4> _codes;
 
     public:
         explicit constexpr _ansi_combo(int c0, int c1) noexcept
-        : _codes {
-            c0          , c1          , INVALID_CODE, INVALID_CODE,
-            INVALID_CODE, INVALID_CODE, INVALID_CODE, INVALID_CODE
-        } {}
+            : _codes { c0, c1, INVALID_CODE, INVALID_CODE }
+        {}
 
-        template <ansi_support T>
+        template <ansi_type T>
         friend _ansi_combo operator & (_ansi_combo combo, T code)
         {
-            for (int& c : combo._codes)
+            for (int& combo_code : combo._codes)
             {
-                if (c == INVALID_CODE)
+                if (combo_code == INVALID_CODE)
                 {
-                    c = static_cast<int>(code);
+                    combo_code = static_cast<int>(code);
                     break;
                 }
             }
@@ -155,8 +145,8 @@ namespace zen {
         }
     };
 
-    template <ansi_support ANSI_T, ansi_support ANSI_U>
-    inline _ansi_combo operator & (ANSI_T c0, ANSI_U c1)
+    template <ansi_type T, ansi_type U>
+    inline _ansi_combo operator & (T c0, U c1)
     {
         return _ansi_combo{static_cast<int>(c0), static_cast<int>(c1)};
     }
