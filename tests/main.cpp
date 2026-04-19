@@ -18,6 +18,17 @@ int main(void)
         {4, 5, 6},
     };
 
+    std::vector<std::vector<std::vector<int>>> vec3 {
+        {
+            {1, 2, 3},
+            {4, 5, 6},
+        },
+        {
+            {7, 8, 9},
+            {10, 11, 12},
+        },
+    };
+
     std::unordered_map<std::string, std::vector<int>> map {
         {"alice", {1, 2, 3} },
         {"bob"  , {4, 5, 6} },
@@ -36,6 +47,9 @@ int main(void)
     std::cout << "\n\n=================\n";
     ZEN_VAR(vec2);
     ZEN_VAR_P(vec2);
+    std::cout << "\n\n=================\n";
+    ZEN_VAR(vec3);
+    ZEN_VAR_P(vec3);
     std::cout << "\n\n=================\n";
     ZEN_VAR(map);
     ZEN_VAR_P(map);
