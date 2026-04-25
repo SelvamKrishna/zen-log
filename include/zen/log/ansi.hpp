@@ -109,6 +109,10 @@ namespace zen {
         std::array<int, 4> _codes;
 
     public:
+        explicit constexpr _ansi_combo(int c0) noexcept
+            : _codes { c0, INVALID_CODE, INVALID_CODE, INVALID_CODE }
+        {}
+
         explicit constexpr _ansi_combo(int c0, int c1) noexcept
             : _codes { c0, c1, INVALID_CODE, INVALID_CODE }
         {}
