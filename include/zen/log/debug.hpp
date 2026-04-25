@@ -132,11 +132,11 @@ struct zen::dbg_trait<std::unordered_map<K, V>> {
         std::cout << "{\n";
         for (const std::pair<const K, const V>& ITEM : data)
         {
-            _print_tab(indent + 1);
+            zen::_print_tab(indent + 1);
             zen::dbg_trait<std::pair<K, V>>::pdebug(ITEM, indent + 1);
             std::cout << ",\n";
         }
-        _print_tab(indent);
+        zen::_print_tab(indent);
         std::cout << '}';
     }
 };
