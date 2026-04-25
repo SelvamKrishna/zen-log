@@ -17,6 +17,17 @@ namespace zen {
     };
 
     template <typename T>
+    inline void _print_type() noexcept
+    {
+        constexpr auto FN = std::string_view{__PRETTY_FUNCTION__};
+        constexpr auto L = FN.find("[with T = ") + sizeof("[with T =");
+        constexpr auto R = FN.rfind("]");
+        static_assert(L < R);
+
+        std::cout << FN.substr(L, (R - L));
+    }
+
+    template <typename T>
     void debug(const T& data) noexcept { dbg_trait<T>::debug(data); }
 
     template <typename T>
@@ -27,6 +38,16 @@ namespace zen {
     }
 
     template <typename T>
+    void debugn(const T& data) noexcept { dbg_trait<T>::debug(data); std::cout << '\n'; }
+
+    template <typename T>
+    void debugn(std::string_view prefix, const T& data) noexcept
+    {
+        dbg_trait<T>::debug(prefix, data);
+        std::cout << '\n';
+    }
+
+    template <typename T>
     void pdebug(const T& data, int indent = 0) noexcept { dbg_trait<T>::pdebug(data, indent); }
 
     template <typename T>
@@ -34,6 +55,16 @@ namespace zen {
     {
         std::cout << prefix << " = ";
         dbg_trait<T>::pdebug(data, indent);
+    }
+
+    template <typename T>
+    void pdebugn(const T& data, int indent = 0) noexcept { dbg_trait<T>::pdebug(data, indent); std::cout << '\n'; }
+
+    template <typename T>
+    void pdebugn(std::string_view prefix, const T& data, int indent = 0) noexcept
+    {
+        dbg_trait<T>::pdebug(prefix, data, indent);
+        std::cout << '\n';
     }
 
     inline void _print_tab(int level) noexcept { for (int i = 0; i < level; ++i) std::cout << TAB; }
@@ -65,17 +96,23 @@ namespace zen {
     }
 
     template <typename T>
-    inline void _print_it(const T* const data_ptr) noexcept
+    inline void _print_ptr(const T* const data_ptr) noexcept
     {
-        std::cout << "<" << typeid(T).name() << "*> ";
-        (data_ptr) ? zen::debug(*data_ptr) : std::cout << "(nullptr)";
+        std::cout << "<"; _print_type<T>();
+        std::cout<< " *> ";
+
+        if (data_ptr) zen::debug(*data_ptr);
+        else std::cout << "(nullptr)";
     }
 
     template <typename T>
-    inline void _pprint_it(const T* const data_ptr, int indent = 0) noexcept
+    inline void _pprint_ptr(const T* const data_ptr, int indent = 0) noexcept
     {
-        std::cout << "<" << typeid(T).name() << "*> ";
-        (data_ptr) ? zen::pdebug(*data_ptr, indent) : std::cout << "(nullptr)";
+        std::cout << "<"; _print_type<T>();
+        std::cout<< " *> ";
+
+        if (data_ptr) zen::pdebug(*data_ptr, indent);
+        else std::cout << "(nullptr)";
     }
 
 } // namespace zen
@@ -104,7 +141,7 @@ struct zen::dbg_trait<std::pair<K, V>> {
 
 template <typename T, size_t N>
 struct zen::dbg_trait<std::array<T, N>> {
-    static void debug(const std::array<T, N>& data) noexcept { zen::_print_it(data.begin(), data.end()); }
+    static void debug(const std::array<T, N>& data) noexcept { zen::_print_type(data.begin(), data.end()); }
 
     static void pdebug(const std::array<T, N>& data, int indent = 0) noexcept
     {
@@ -116,7 +153,7 @@ struct zen::dbg_trait<std::array<T, N>> {
 
 template <typename T, size_t N>
 struct zen::dbg_trait<std::span<T, N>> {
-    static void debug(const std::span<T, N>& data) noexcept { zen::_print_it(data.begin(), data.end()); }
+    static void debug(const std::span<T, N>& data) noexcept { zen::_print_type(data.begin(), data.end()); }
 
     static void pdebug(const std::span<T, N>& data, int indent = 0) noexcept
     {
@@ -159,7 +196,7 @@ struct zen::dbg_trait<std::unordered_map<K, V>> {
 
 template <typename T>
 struct zen::dbg_trait<std::vector<T>> {
-    static void debug(const std::vector<T>& data) noexcept { zen::_print_it(data.begin(), data.end()); }
+    static void debug(const std::vector<T>& data) noexcept { zen::_print_type(data.begin(), data.end()); }
 
     static void pdebug(const std::vector<T>& data, int indent = 0) noexcept
     {
@@ -167,33 +204,35 @@ struct zen::dbg_trait<std::vector<T>> {
     }
 };
 
+#include <memory>
+
 template <typename T>
 struct zen::dbg_trait<std::unique_ptr<T>> {
-    static void debug(const std::unique_ptr<T>& data) noexcept { zen::_print_it(data.get()); }
+    static void debug(const std::unique_ptr<T>& data) noexcept { zen::_print_ptr(data.get()); }
 
     static void pdebug(const std::unique_ptr<T>& data, int indent = 0) noexcept
     {
-        zen::_pprint_it(data.get(), indent);
+        zen::_pprint_ptr(data.get(), indent);
     }
 };
 
 template <typename T>
 struct zen::dbg_trait<std::shared_ptr<T>> {
-    static void debug(const std::shared_ptr<T>& data) noexcept { zen::_print_it(data.get()); }
+    static void debug(const std::shared_ptr<T>& data) noexcept { zen::_print_ptr(data.get()); }
 
     static void pdebug(const std::shared_ptr<T>& data, int indent = 0) noexcept
     {
-        zen::_pprint_it(data.get(), indent);
+        zen::_pprint_ptr(data.get(), indent);
     }
 };
 
 template <typename T>
 struct zen::dbg_trait<std::weak_ptr<T>> {
-    static void debug(const std::weak_ptr<T>& data) noexcept { zen::_print_it(data.lock().get()); }
+    static void debug(const std::weak_ptr<T>& data) noexcept { zen::_print_ptr(data.lock().get()); }
 
     static void pdebug(const std::weak_ptr<T>& data, int indent = 0) noexcept
     {
-        zen::_pprint_it(data.lock().get(), indent);
+        zen::_pprint_ptr(data.lock().get(), indent);
     }
 };
 
@@ -203,16 +242,18 @@ template <typename T>
 struct zen::dbg_trait<std::optional<T>> {
     static void debug(const std::optional<T>& data) noexcept
     {
-        data.has_value()
-            ? zen::dbg_trait<T>::debug(data.value())
-            : std::cout << "optional<" << typeid(T).name() << ">(nullopt)";
+        if (data.has_value())
+            zen::dbg_trait<T>::debug(data.value());
+        else
+            std::cout << "optional<" << typeid(T).name() << ">(nullopt)";
     }
 
     static void pdebug(const std::optional<T>& data, int indent = 0) noexcept
     {
-        data.has_value()
-            ? zen::dbg_trait<T>::pdebug(data.value(), indent)
-            : std::cout << "optional<" << typeid(T).name() << ">(nullopt)";
+        if (data.has_value())
+            zen::dbg_trait<T>::pdebug(data.value(), indent);
+        else
+            std::cout << "optional<" << typeid(T).name() << ">(nullopt)";
     }
 };
 
@@ -239,4 +280,3 @@ struct zen::dbg_trait<std::variant<Types...>> {
         );
     }
 };
-
