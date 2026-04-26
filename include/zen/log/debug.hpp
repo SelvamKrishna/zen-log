@@ -4,11 +4,12 @@
 
 namespace zen {
 
-    static inline const char* TAB = "    ";
+    static inline const std::string_view TAB = "    ";
 
     template <typename T>
     struct dbg_trait {
         static void debug(const T& data) noexcept { std::cout << data; }
+
         static void pdebug(const T& data, int indent = 0) noexcept
         {
             (void)indent;
@@ -19,52 +20,42 @@ namespace zen {
     template <typename T>
     inline void _print_type() noexcept
     {
-        constexpr auto FN = std::string_view{__PRETTY_FUNCTION__};
-        constexpr auto L = FN.find("[with T = ") + sizeof("[with T =");
-        constexpr auto R = FN.rfind("]");
+        constexpr std::string_view FN = __PRETTY_FUNCTION__;
+        constexpr size_t L = FN.find("[with T = ") + sizeof("[with T = ") - 1;
+        constexpr size_t R = FN.rfind("]");
         static_assert(L < R);
 
         std::cout << FN.substr(L, (R - L));
     }
 
     template <typename T>
-    void debug(const T& data) noexcept { dbg_trait<T>::debug(data); }
-
-    template <typename T>
-    void debug(std::string_view prefix, const T& data) noexcept
+    void debug(const T& data, std::string_view suffix = {}) noexcept
     {
-        std::cout << prefix << " = ";
         dbg_trait<T>::debug(data);
+        std::cout << suffix;
     }
 
     template <typename T>
-    void debugn(const T& data) noexcept { dbg_trait<T>::debug(data); std::cout << '\n'; }
-
-    template <typename T>
-    void debugn(std::string_view prefix, const T& data) noexcept
+    void debug(std::string_view prefix, const T& data, std::string_view suffix = {}) noexcept
     {
-        dbg_trait<T>::debug(prefix, data);
-        std::cout << '\n';
+        std::cout << prefix;
+        dbg_trait<T>::debug(data);
+        std::cout << suffix;
     }
 
     template <typename T>
-    void pdebug(const T& data, int indent = 0) noexcept { dbg_trait<T>::pdebug(data, indent); }
-
-    template <typename T>
-    void pdebug(std::string_view prefix, const T& data, int indent = 0) noexcept
+    void pdebug(const T& data, std::string_view suffix = {}, int indent = 0) noexcept
     {
-        std::cout << prefix << " = ";
         dbg_trait<T>::pdebug(data, indent);
+        std::cout << suffix;
     }
 
     template <typename T>
-    void pdebugn(const T& data, int indent = 0) noexcept { dbg_trait<T>::pdebug(data, indent); std::cout << '\n'; }
-
-    template <typename T>
-    void pdebugn(std::string_view prefix, const T& data, int indent = 0) noexcept
+    void pdebug(std::string_view prefix, const T& data, std::string_view suffix = {}, int indent = 0) noexcept
     {
-        dbg_trait<T>::pdebug(prefix, data, indent);
-        std::cout << '\n';
+        std::cout << prefix;
+        dbg_trait<T>::pdebug(data, indent);
+        std::cout << suffix;
     }
 
     inline void _print_tab(int level) noexcept { for (int i = 0; i < level; ++i) std::cout << TAB; }
@@ -88,9 +79,10 @@ namespace zen {
         for (It it = begin; it != end; ++it)
         {
             _print_tab(indent + 1);
-            zen::pdebug(*it, indent + 1);
+            zen::pdebug(*it, {}, indent + 1);
             std::cout << ",\n";
         }
+
         _print_tab(indent);
         std::cout << ']';
     }
@@ -111,14 +103,14 @@ namespace zen {
         std::cout << "<"; _print_type<T>();
         std::cout<< " *> ";
 
-        if (data_ptr) zen::pdebug(*data_ptr, indent);
+        if (data_ptr) zen::pdebug(*data_ptr, {}, indent);
         else std::cout << "(nullptr)";
     }
 
 } // namespace zen
 
-#define ZEN_VAR(var)   do { ::zen::debug("\n" #var, var); } while(0)
-#define ZEN_VAR_P(var) do { ::zen::pdebug("\n" #var, var); } while(0)
+#define ZEN_VAR(var)   do { ::zen::debug ("\n" #var " = ", (var)); } while(0)
+#define ZEN_VAR_P(var) do { ::zen::pdebug("\n" #var " = ", (var)); } while(0)
 
 template <typename K, typename V>
 struct zen::dbg_trait<std::pair<K, V>> {
@@ -196,7 +188,7 @@ struct zen::dbg_trait<std::unordered_map<K, V>> {
 
 template <typename T>
 struct zen::dbg_trait<std::vector<T>> {
-    static void debug(const std::vector<T>& data) noexcept { zen::_print_type(data.begin(), data.end()); }
+    static void debug(const std::vector<T>& data) noexcept { zen::_print_it(data.begin(), data.end()); }
 
     static void pdebug(const std::vector<T>& data, int indent = 0) noexcept
     {
@@ -272,10 +264,7 @@ struct zen::dbg_trait<std::variant<Types...>> {
     static void pdebug(const std::variant<Types...>& data, int indent = 0) noexcept
     {
         std::visit(
-            [indent](const auto& value)
-            {
-                zen::dbg_trait<std::decay_t<decltype(value)>>::pdebug(value, indent);
-            },
+            [&](const auto& value) { zen::dbg_trait<std::decay_t<decltype(value)>>::pdebug(value, indent); },
             data
         );
     }
