@@ -1,5 +1,6 @@
 #pragma once
 
+#include <zen/log/_utils.hpp>
 #include <zen/log/ansi.hpp>
 
 #include <cstdint>
@@ -75,6 +76,16 @@ namespace zen {
             }
 
             return os << " : ";
+        }
+
+        template <typename Err>
+            requires std::is_base_of_v<std::exception, Err>
+        static inline log_tag err_tag()
+        {
+            std::string_view _type = _get_type<Err>();
+            if (_type.starts_with("std::")) _type.remove_prefix(5);
+            if (_type.ends_with("_error")) _type.remove_suffix(6);
+            return log_tag {_capitalize(_type), ansi_color::RED};
         }
     };
 

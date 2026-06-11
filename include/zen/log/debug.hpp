@@ -2,6 +2,9 @@
 
 #include <iostream>
 
+#include <zen/log/ansi.hpp>
+#include <zen/log/_utils.hpp>
+
 namespace zen {
 
     static inline const std::string_view TAB = "    ";
@@ -20,12 +23,7 @@ namespace zen {
     template <typename T>
     inline void _print_type() noexcept
     {
-        constexpr std::string_view FN = __PRETTY_FUNCTION__;
-        constexpr size_t L = FN.find("[with T = ") + sizeof("[with T = ") - 1;
-        constexpr size_t R = FN.rfind("]");
-        static_assert(L < R);
-
-        std::cout << FN.substr(L, (R - L));
+        std::cout << ansi_color::MAGENTA << zen::_get_type<T>() << ansi_style::RESET;
     }
 
     template <typename T>
@@ -91,8 +89,7 @@ namespace zen {
     inline void _print_ptr(const T* const data_ptr) noexcept
     {
         std::cout << "<"; _print_type<T>();
-        std::cout<< " *> ";
-
+        std::cout << ansi_color::MAGENTA << " *" << ansi_style::RESET << "> ";
         if (data_ptr) zen::debug(*data_ptr);
         else std::cout << "(nullptr)";
     }
@@ -101,8 +98,7 @@ namespace zen {
     inline void _pprint_ptr(const T* const data_ptr, int indent = 0) noexcept
     {
         std::cout << "<"; _print_type<T>();
-        std::cout<< " *> ";
-
+        std::cout << ansi_color::MAGENTA << " *" << ansi_style::RESET << "> ";
         if (data_ptr) zen::pdebug(*data_ptr, {}, indent);
         else std::cout << "(nullptr)";
     }
@@ -133,7 +129,7 @@ struct zen::dbg_trait<std::pair<K, V>> {
 
 template <typename T, size_t N>
 struct zen::dbg_trait<std::array<T, N>> {
-    static void debug(const std::array<T, N>& data) noexcept { zen::_print_type(data.begin(), data.end()); }
+    static void debug(const std::array<T, N>& data) noexcept { zen::_print_it(data.begin(), data.end()); }
 
     static void pdebug(const std::array<T, N>& data, int indent = 0) noexcept
     {
@@ -145,7 +141,7 @@ struct zen::dbg_trait<std::array<T, N>> {
 
 template <typename T, size_t N>
 struct zen::dbg_trait<std::span<T, N>> {
-    static void debug(const std::span<T, N>& data) noexcept { zen::_print_type(data.begin(), data.end()); }
+    static void debug(const std::span<T, N>& data) noexcept { zen::_print_it(data.begin(), data.end()); }
 
     static void pdebug(const std::span<T, N>& data, int indent = 0) noexcept
     {
