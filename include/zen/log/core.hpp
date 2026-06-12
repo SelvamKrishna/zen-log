@@ -6,9 +6,17 @@
 #include <cstdint>
 #include <iostream>
 #include <stack>
+#include <chrono>
 
 namespace zen {
 
+    /*
+        Supported log levels
+        - DBUG: For debugging
+        - INFO: For informational messages
+        - WARN: For warning messages
+        - ERRO: For error messagesA
+    */
     enum log_lvl : uint8_t { DBG = 0, INFO = 1, WARN = 2, ERR = 3, };
 
     inline std::ostream& operator << (std::ostream& os, const log_lvl& lvl) noexcept
@@ -30,6 +38,11 @@ namespace zen {
         return os << ANSI_LUT[lvl] << LOG_LVL_LUT[lvl] << ANSI_RESET;
     }
 
+    /*
+        Returns a reference to the log stream
+        - `lvl`: The log level
+        Usage: `zen::log(DBG) << "Hello World";`
+    */
     [[nodiscard]] inline std::ostream& log(log_lvl lvl = DBG) noexcept
     {
         return ((lvl == WARN || lvl == ERR) ? std::cerr : std::cout) << '\n' << lvl << " : " ;
@@ -40,6 +53,10 @@ namespace zen {
     [[nodiscard]] inline std::ostream& warn() noexcept { return std::cerr << '\n' << WARN << " : " ; }
     [[nodiscard]] inline std::ostream& err()  noexcept { return std::cerr << '\n' << ERR  << " : " ; }
 
+    /*
+        Displayable context tag for logging messages
+        - Output: `[<text>]: <Your message>`
+    */
     struct log_tag {
     private:
         std::string _text;
@@ -86,6 +103,16 @@ namespace zen {
             if (_type.starts_with("std::")) _type.remove_prefix(5);
             if (_type.ends_with("_error")) _type.remove_suffix(6);
             return log_tag {_capitalize(_type), ansi_color::RED};
+        }
+
+        static inline log_tag time_tag()
+        {
+            const std::chrono::time_point NOW = std::chrono::system_clock::now();
+
+            return log_tag {
+                std::format("{:%T}", std::chrono::floor<std::chrono::seconds>(NOW)),
+                ansi_color::WHITE & ansi_style::DIM
+            };
         }
     };
 

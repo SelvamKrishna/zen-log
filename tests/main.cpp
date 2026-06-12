@@ -8,13 +8,16 @@ int main(void)
     zen::ansi_gaurd _log_os_gaurd {std::cout};
     zen::ansi_gaurd _err_os_gaurd {std::cerr};
 
-    std::unique_ptr<int> p1 { nullptr };
-    std::unique_ptr<int> p2 { new int {42} };
+    const zen::log_tag INPUT {"INPUT", zen::ansi_color::MAGENTA};
 
-    zen::pdebug(p1, "\n");
-    zen::pdebug(p2, "\n");
+    while (true)
+    {
+        std::string s = "";
+        std::getline(std::cin, s);
+        if (s == "exit") break;
 
-    zen::err() << zen::log_tag::err_tag<std::runtime_error>() << "Something went wrong\n";
+        zen::info() << zen::log_tag::time_tag() << s << "\n" << INPUT;
+    }
 
     return EXIT_SUCCESS;
 }
