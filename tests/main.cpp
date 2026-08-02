@@ -1,23 +1,19 @@
 #include <zen/log.hpp>
 
-#include <iostream>
-#include <cassert>
+#include <fstream>
 
 int main(void)
 {
-    zen::ansi_gaurd _log_os_gaurd {std::cout};
-    zen::ansi_gaurd _err_os_gaurd {std::cerr};
+    static std::ofstream file {"test.log", std::ios::trunc | std::ios::out};
 
-    const zen::log_tag INPUT {"INPUT", zen::ansi_color::MAGENTA};
+    if (!file.is_open())
+        return EXIT_FAILURE;
 
-    while (true)
-    {
-        std::string s = "";
-        std::getline(std::cin, s);
-        if (s == "exit") break;
+    zen::logger::init(file, file);
 
-        zen::info() << zen::log_tag::time_tag() << s << "\n" << INPUT;
-    }
+    zen::info() << "Hello, World!";
+    zen::warn() << "Hello, World!";
+    zen::err() << "Hello, World!";
 
     return EXIT_SUCCESS;
 }

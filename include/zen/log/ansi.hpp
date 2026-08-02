@@ -2,20 +2,53 @@
 
 #include <array>
 #include <format>
-#include <iostream>
 #include <string>
+#include <iostream>
+
+#ifdef _WIN32
+#include <io.h>
+#define _IS_OS_TERM _isatty
+#define STDOUT_FILENO 1
+#define STDERR_FILENO 2
+#else
+#include <unistd.h>
+#define _IS_OS_TERM isatty
+#endif
 
 namespace zen {
 
     inline static constexpr std::string_view ANSI_RESET = "\033[0m";
 
+    [[nodiscard]] constexpr inline bool is_terminal(const std::ostream& os) noexcept
+    {
+        if (os.rdbuf() == std::cout.rdbuf())
+            return _IS_OS_TERM(STDOUT_FILENO) != 0;
+
+        if (os.rdbuf() == std::cerr.rdbuf())
+            return _IS_OS_TERM(STDERR_FILENO) != 0;
+
+        return false;
+    }
+
     struct ansi_gaurd final {
     private:
         std::ostream& _os;
+        const bool _IS_TERMINAL {false};
 
     public:
-        explicit ansi_gaurd(std::ostream& os = std::cout) noexcept : _os {os} { this->_os << ANSI_RESET; }
+        explicit ansi_gaurd(std::ostream& os = std::cout) noexcept
+            : _os {os}, _IS_TERMINAL {is_terminal(os)}
+        { this->_os << ANSI_RESET; }
+
         ~ansi_gaurd() noexcept { this->_os << ANSI_RESET << std::endl; }
+
+        [[nodiscard]] std::ostream& os() noexcept { return this->_os; }
+
+        [[nodiscard]] ansi_gaurd& operator << (std::string_view text) noexcept
+        {
+            this->_os << text;
+            return *this;
+        }
     };
 
     struct ansi_rgb final {
@@ -109,11 +142,16 @@ namespace zen {
         std::array<int, 4> _codes;
 
     public:
-        explicit constexpr _ansi_combo(int c0) noexcept
+        constexpr _ansi_combo(int c0) noexcept
             : _codes { c0, INVALID_CODE, INVALID_CODE, INVALID_CODE }
         {}
 
-        explicit constexpr _ansi_combo(int c0, int c1) noexcept
+        template <ansi_type T>
+        constexpr _ansi_combo(T val) noexcept
+            : _codes { static_cast<int>(val), INVALID_CODE, INVALID_CODE, INVALID_CODE }
+        {}
+
+        constexpr _ansi_combo(int c0, int c1) noexcept
             : _codes { c0, c1, INVALID_CODE, INVALID_CODE }
         {}
 
@@ -162,32 +200,19 @@ namespace zen {
 
 } // namespace zen
 
-template <>
-struct std::formatter<::zen::ansi_style> {
-    constexpr auto parse(std::format_parse_context& ctx) { return ctx.begin(); }
+#define _FORMATTER_IMPL(_type, ...) \
+    template <> \
+    struct std::formatter<_type> { \
+        constexpr auto parse(std::format_parse_context& ctx) { return ctx.begin(); } \
+        auto format(const _type& type, std::format_context& ctx) const \
+        { \
+            return std::format_to(ctx.out(), __VA_ARGS__); \
+        } \
+    }; \
 
-    auto format(const ::zen::ansi_style& code, std::format_context& ctx) const
-    {
-        return std::format_to(ctx.out(), "\033[{}m", static_cast<int>(code));
-    }
-};
+_FORMATTER_IMPL(zen::ansi_style, "\033[{}m", static_cast<int>(type));
+_FORMATTER_IMPL(zen::ansi_color, "\033[{}m", static_cast<int>(type));
+_FORMATTER_IMPL(zen::_ansi_combo, "{}", type.build());
 
-template <>
-struct std::formatter<::zen::ansi_color> {
-    constexpr auto parse(std::format_parse_context& ctx) { return ctx.begin(); }
-
-    auto format(const ::zen::ansi_color& code, std::format_context& ctx) const
-    {
-        return std::format_to(ctx.out(), "\033[{}m", static_cast<int>(code));
-    }
-};
-
-template <>
-struct std::formatter<::zen::_ansi_combo> {
-    constexpr auto parse(std::format_parse_context& ctx) { return ctx.begin(); }
-
-    auto format(const ::zen::_ansi_combo& combo, std::format_context& ctx) const
-    {
-        return std::format_to(ctx.out(), "{}", combo.build());
-    }
-};
+#undef _FORMATTER_IMPL
+#undef _IS_OS_TERM
