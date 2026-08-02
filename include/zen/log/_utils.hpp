@@ -1,13 +1,35 @@
 #pragma once
 
+#include <iostream>
 #include <string>
 #include <string_view>
 
+#ifdef _WIN32
+#include <io.h>
+#define _IS_OS_TERM _isatty
+#define STDOUT_FILENO 1
+#define STDERR_FILENO 2
+#else
+#include <unistd.h>
+#define _IS_OS_TERM isatty
+#endif
+
 namespace zen {
+
+    [[nodiscard]] constexpr inline bool is_terminal(const std::ostream& os) noexcept
+    {
+        if (os.rdbuf() == std::cout.rdbuf())
+            return _IS_OS_TERM(STDOUT_FILENO) != 0;
+
+        if (os.rdbuf() == std::cerr.rdbuf())
+            return _IS_OS_TERM(STDERR_FILENO) != 0;
+
+        return false;
+    }
 
     inline constexpr std::string _capitalize(std::string_view sv) noexcept {
         std::string text {sv};
-        for (char& c : text) c -= ('a' - 'A') * (c >= 'a' && c <= 'z');
+        for (char& c : text) if (c >= 'a' && c <= 'z') c -= ('a' - 'A');
         return text;
     }
 

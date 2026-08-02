@@ -3,9 +3,11 @@
 #include <zen/log/_utils.hpp>
 #include <zen/log/ansi.hpp>
 
+#include <atomic>
 #include <chrono>
 #include <cstdint>
 #include <iostream>
+#include <fstream>
 #include <mutex>
 #include <stack>
 
@@ -29,11 +31,14 @@ namespace zen {
     inline std::ostream& operator << (std::ostream& os, const log_lvl& lvl) noexcept
     {
         static constexpr std::string_view LOG_LVL_LUT[] = {
-            "[DBUG]",
+            "[DEBUG]",
             "[INFO]",
             "[WARN]",
-            "[ERRO]",
+            "[ERROR]",
         };
+
+        if (!is_terminal(os))
+            return os << LOG_LVL_LUT[lvl];
 
         static constexpr ansi_color ANSI_LUT[] = {
             ansi_color::CYAN,
@@ -52,69 +57,122 @@ namespace zen {
     */
     struct logger final {
     private:
-        ansi_gaurd   _out_os;
-        ansi_gaurd   _err_os;
-        std::ostream _null_os;
-        _null_buf    _null_buf {};
+        std::ostream* _out_stream;
+        std::ostream* _err_stream;
 
-        log_lvl _min_lvl {DBG};
+        ansi_gaurd _out_os;
+        ansi_gaurd _err_os;
+
+        _null_buf    _null_buf {};
+        std::ostream _null_stream {&_null_buf};
+        ansi_gaurd   _null_os {_null_stream};
+
+        std::atomic<log_lvl> _min_lvl {DBG};
         bool _flag_log_time {false};
+        bool _owns_stream {false};
 
         static inline logger* _instance = nullptr;
         static inline std::once_flag _init_flag;
 
-        explicit logger(std::ostream& out_os, std::ostream& err_os)
-            : _out_os  {out_os}
-            , _err_os  {err_os}
-            , _null_os {&_null_buf}
+        explicit logger(std::ostream& out_os, std::ostream& err_os, bool owns = false)
+            : _out_stream(&out_os)
+            , _err_stream(&err_os)
+            , _out_os(out_os)
+            , _err_os(err_os)
+            , _owns_stream(owns)
         {}
 
     public:
         logger(const logger&) = delete;
         logger& operator=(const logger&) = delete;
 
-        constexpr static void set_min_level(const log_lvl& lvl) { logger::instance()._min_lvl = lvl; }
-        constexpr static void set_timestamp_flag(bool flag) { logger::instance()._flag_log_time = flag; }
+        ~logger()
+        {
+            if (_owns_stream)
+            {
+                delete _out_stream;
+                delete _err_stream;
+            }
+        }
+
+        static void set_min_level(log_lvl lvl)
+        {
+            logger::instance()._min_lvl.store(lvl, std::memory_order_relaxed);
+        }
+
+        static void set_timestamp_flag(bool flag) { logger::instance()._flag_log_time = flag; }
 
         static void init(
             std::ostream& out_os = std::cout,
             std::ostream& err_os = std::cerr,
             log_lvl min_lvl = DBG,
             bool flag_log_time = false
-        )
-        {
+        ) {
             std::call_once(logger::_init_flag, [&]() {
-                static logger instance {out_os, err_os};
+                static logger instance {out_os, err_os, false};
                 logger::_instance = &instance;
             });
 
-            logger::instance()._min_lvl = min_lvl;
-            logger::instance()._flag_log_time = flag_log_time;
+            logger& inst = logger::instance();
+            inst._min_lvl.store(min_lvl, std::memory_order_relaxed);
+            inst._flag_log_time = flag_log_time;
+        }
+
+        static void init(
+            std::string file_path,
+            log_lvl min_lvl = DBG,
+            bool flag_log_time = false
+        ) {
+            std::ofstream* log_file = new std::ofstream{file_path};
+
+            if (!log_file->good()) throw std::runtime_error(
+                "Failed to open log file: " + file_path
+            );
+
+            logger::init(*log_file, *log_file, min_lvl, flag_log_time);
         }
 
         [[nodiscard]] static inline logger& instance()
         {
-            if (!logger::_instance) throw
-                std::runtime_error("Logger not initialized. Call zen::logger::init() first.");
+            if (!logger::_instance) throw std::runtime_error(
+                "Logger not initialized. Call zen::logger::init() first."
+            );
 
             return *logger::_instance;
         }
 
-        [[nodiscard]] static inline std::ostream& log(const log_lvl& lvl)
-        {
+        [[nodiscard]] static inline ansi_gaurd& log(const log_lvl& lvl) {
             logger& inst = logger::instance();
 
-            if (lvl < inst._min_lvl) return _instance->_null_os;
+            if (lvl < inst._min_lvl.load(std::memory_order_relaxed)) return inst._null_os;
 
-            return ((lvl == ERR || lvl == WARN) ? inst._err_os: inst._err_os)
-                .os() << '\n' << lvl << " : ";
+            ansi_gaurd& os = (lvl == ERR || lvl == WARN)
+                ? inst._err_os
+                : inst._out_os;
+
+            os << '\n';
+
+            if (inst._flag_log_time)
+            {
+                const std::chrono::time_point NOW = std::chrono::system_clock::now();
+
+                os  << _ansi_combo {ansi_color::WHITE & ansi_style::DIM}
+                    << std::format("{:%T}", std::chrono::floor<std::chrono::seconds>(NOW))
+                    << ANSI_RESET << ' ';
+            }
+
+            os << lvl << ": ";
+            return os;
         }
+
+        [[nodiscard]] static std::ostream& out_stream() { return *instance()._out_stream; }
+        [[nodiscard]] static std::ostream& err_stream() { return *instance()._err_stream; }
     };
 
-    [[nodiscard]] inline std::ostream& dbg()  noexcept { return logger::log(DBG); }
-    [[nodiscard]] inline std::ostream& info() noexcept { return logger::log(INFO); }
-    [[nodiscard]] inline std::ostream& warn() noexcept { return logger::log(WARN); }
-    [[nodiscard]] inline std::ostream& err()  noexcept { return logger::log(ERR); }
+    [[nodiscard]] inline ansi_gaurd& dbg()  noexcept { return logger::log(DBG); }
+    [[nodiscard]] inline ansi_gaurd& info() noexcept { return logger::log(INFO); }
+    [[nodiscard]] inline ansi_gaurd& warn() noexcept { return logger::log(WARN); }
+    [[nodiscard]] inline ansi_gaurd& err()  noexcept { return logger::log(ERR); }
 
     /*
         Displayable context tag for logging messages
@@ -158,7 +216,6 @@ namespace zen {
             return os << " : ";
         }
 
-
         template <typename Err>
             requires std::is_base_of_v<std::exception, Err>
         static inline log_tag err_tag()
@@ -179,10 +236,10 @@ namespace zen {
             };
         }
 
-        [[nodiscard]] inline constexpr std::ostream& dbg()  const noexcept { return zen::dbg()  << (*this); }
-        [[nodiscard]] inline constexpr std::ostream& info() const noexcept { return zen::info() << (*this); }
-        [[nodiscard]] inline constexpr std::ostream& warn() const noexcept { return zen::warn() << (*this); }
-        [[nodiscard]] inline constexpr std::ostream& err()  const noexcept { return zen::err()  << (*this); }
+        [[nodiscard]] inline constexpr ansi_gaurd& dbg()  const noexcept { return zen::dbg()  << (*this); }
+        [[nodiscard]] inline constexpr ansi_gaurd& info() const noexcept { return zen::info() << (*this); }
+        [[nodiscard]] inline constexpr ansi_gaurd& warn() const noexcept { return zen::warn() << (*this); }
+        [[nodiscard]] inline constexpr ansi_gaurd& err()  const noexcept { return zen::err()  << (*this); }
     };
 
     // panic's and aborts the program if the condition is false
@@ -191,7 +248,7 @@ namespace zen {
         static const log_tag ASSERT_TAG {"ASSERT", ansi_color::BG_EX_RED};
         if (condition) return;
 
-        err() << ASSERT_TAG << message << std::endl;
+        err() << ASSERT_TAG << message << '\n';
         std::abort();
     }
 
@@ -201,7 +258,7 @@ namespace zen {
         static const log_tag ASSERT_TAG {"[ASSERT]", ansi_color::BG_EX_RED};
         if (condition) return;
 
-        err() << ASSERT_TAG << tag << message << std::endl;
+        err() << ASSERT_TAG << tag << message << '\n';
         std::abort();
     }
 

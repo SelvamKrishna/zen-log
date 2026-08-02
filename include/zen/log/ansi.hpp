@@ -5,51 +5,11 @@
 #include <string>
 #include <iostream>
 
-#ifdef _WIN32
-#include <io.h>
-#define _IS_OS_TERM _isatty
-#define STDOUT_FILENO 1
-#define STDERR_FILENO 2
-#else
-#include <unistd.h>
-#define _IS_OS_TERM isatty
-#endif
+#include <zen/log/_utils.hpp>
 
 namespace zen {
 
     inline static constexpr std::string_view ANSI_RESET = "\033[0m";
-
-    [[nodiscard]] constexpr inline bool is_terminal(const std::ostream& os) noexcept
-    {
-        if (os.rdbuf() == std::cout.rdbuf())
-            return _IS_OS_TERM(STDOUT_FILENO) != 0;
-
-        if (os.rdbuf() == std::cerr.rdbuf())
-            return _IS_OS_TERM(STDERR_FILENO) != 0;
-
-        return false;
-    }
-
-    struct ansi_gaurd final {
-    private:
-        std::ostream& _os;
-        const bool _IS_TERMINAL {false};
-
-    public:
-        explicit ansi_gaurd(std::ostream& os = std::cout) noexcept
-            : _os {os}, _IS_TERMINAL {is_terminal(os)}
-        { this->_os << ANSI_RESET; }
-
-        ~ansi_gaurd() noexcept { this->_os << ANSI_RESET << std::endl; }
-
-        [[nodiscard]] std::ostream& os() noexcept { return this->_os; }
-
-        [[nodiscard]] ansi_gaurd& operator << (std::string_view text) noexcept
-        {
-            this->_os << text;
-            return *this;
-        }
-    };
 
     struct ansi_rgb final {
     private:
@@ -133,6 +93,7 @@ namespace zen {
     template  <ansi_type T>
     inline std::ostream& operator << (std::ostream& os, const T& code) noexcept
     {
+        if (!is_terminal(os)) return os;
         return os << "\033[" << static_cast<int>(code) << 'm';
     }
 
@@ -170,9 +131,10 @@ namespace zen {
             return combo;
         }
 
-        [[nodiscard]] std::string build() const noexcept
+        [[nodiscard]] std::string build(bool with_color = true) const noexcept
         {
             if (this->_codes[0] == INVALID_CODE) return "";
+            if (!with_color) return "";
 
             std::string result = "\033[" + std::to_string(this->_codes[0]);
 
@@ -195,8 +157,47 @@ namespace zen {
 
     inline std::ostream& operator << (std::ostream& os, const _ansi_combo& combo)
     {
-        return os << combo.build();
+        return os << combo.build(is_terminal(os));
     }
+
+    template <typename T>
+    concept printable = requires (T text) { std::cout << text; };
+
+    struct ansi_gaurd final {
+    private:
+        std::ostream& _os;
+        const bool _IS_TERMINAL {false};
+
+    public:
+        explicit ansi_gaurd(std::ostream& os = std::cout) noexcept
+            : _os {os}, _IS_TERMINAL {is_terminal(os)}
+        { if (this->_IS_TERMINAL) this->_os << ANSI_RESET; }
+
+        ~ansi_gaurd() noexcept
+        {
+            if (this->_IS_TERMINAL) this->_os << ANSI_RESET << std::endl;
+            else this->_os << '\n';
+        }
+
+        [[nodiscard]] std::ostream& os() noexcept { return this->_os; }
+
+        ansi_gaurd& operator << (std::string_view text) noexcept
+        {
+            this->_os << text;
+            return *this;
+        }
+
+        template <ansi_type T>
+        ansi_gaurd& operator << (const T& _) noexcept { return *this; }
+
+        template <printable T>
+        ansi_gaurd& operator << (const T& data) noexcept
+        {
+            this->_os << data;
+            return *this;
+        }
+    };
+
 
 } // namespace zen
 
@@ -215,4 +216,3 @@ _FORMATTER_IMPL(zen::ansi_color, "\033[{}m", static_cast<int>(type));
 _FORMATTER_IMPL(zen::_ansi_combo, "{}", type.build());
 
 #undef _FORMATTER_IMPL
-#undef _IS_OS_TERM
