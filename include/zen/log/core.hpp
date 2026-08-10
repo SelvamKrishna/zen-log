@@ -9,7 +9,9 @@
 #include <iostream>
 #include <fstream>
 #include <mutex>
-#include <stack>
+#include <string>
+#include <string_view>
+#include <source_location>
 
 namespace zen {
 
@@ -19,13 +21,7 @@ namespace zen {
         int overflow(int c) { return c; }
     };
 
-    /*
-        Supported log levels
-        - DBG: For debugging
-        - INFO: For informational messages
-        - WARN: For warning messages
-        - ERR: For error messagesA
-    */
+    // Supported log levels
     enum log_lvl : uint8_t { DBG = 0, INFO = 1, WARN = 2, ERR = 3, };
 
     inline std::ostream& operator << (std::ostream& os, const log_lvl& lvl) noexcept
@@ -37,8 +33,7 @@ namespace zen {
             "[ERROR]",
         };
 
-        if (!is_terminal(os))
-            return os << LOG_LVL_LUT[lvl];
+        if (!is_terminal(os)) return os << LOG_LVL_LUT[lvl];
 
         static constexpr ansi_color ANSI_LUT[] = {
             ansi_color::CYAN,
@@ -47,7 +42,10 @@ namespace zen {
             ansi_color::RED,
         };
 
-        return os << ANSI_LUT[lvl] << ansi_style::BOLD << LOG_LVL_LUT[lvl] << ANSI_RESET;
+        return os
+            << ansi_style::RESET << ANSI_LUT[lvl]
+            << ansi_style::BOLD << LOG_LVL_LUT[lvl]
+            << ansi_style::RESET;
     }
 
     /*
@@ -88,7 +86,7 @@ namespace zen {
 
         ~logger()
         {
-            if (_owns_stream)
+            if (this->_owns_stream)
             {
                 delete _out_stream;
                 delete _err_stream;
@@ -122,12 +120,15 @@ namespace zen {
             std::string file_path,
             log_lvl min_lvl = DBG,
             bool flag_log_time = false
-        ) {
+        )
+        {
             std::ofstream* log_file = new std::ofstream{file_path};
 
-            if (!log_file->good()) throw std::runtime_error(
-                "Failed to open log file: " + file_path
-            );
+            if (!log_file->good()) [[unlikely]]
+            {
+                delete log_file;
+                throw std::runtime_error("Failed to open log file.");
+            }
 
             logger::init(*log_file, *log_file, min_lvl, flag_log_time);
         }
@@ -158,7 +159,7 @@ namespace zen {
 
                 os  << _ansi_combo {ansi_color::WHITE & ansi_style::DIM}
                     << std::format("{:%T}", std::chrono::floor<std::chrono::seconds>(NOW))
-                    << ANSI_RESET << ' ';
+                    << ansi_style::RESET << ' ';
             }
 
             os << lvl << ": ";
@@ -184,6 +185,36 @@ namespace zen {
         _ansi_combo    _combo {ansi_color::WHITE & ansi_style::DIM};
         const log_tag* _FROM  {nullptr};
 
+        mutable std::string _cached_tag;
+        mutable bool        _is_cached {false};
+        mutable bool        _was_ansi {false};
+
+        void _ensure_cache(bool with_ansi = true) const
+        {
+            if (this->_was_ansi != with_ansi) this->_is_cached = false;
+            if (this->_is_cached) return;
+
+            this->_cached_tag.clear();
+            this->_was_ansi = with_ansi;
+
+            const log_tag* TAGS[16];
+            size_t count {0};
+
+            for (const log_tag* CURR = this; CURR != nullptr && count < 16; CURR = CURR->_FROM)
+                TAGS[count++] = CURR;
+
+            if (with_ansi) for (size_t i {count}; i > 0; --i)
+                this->_cached_tag += std::format(
+                    "{}[{}]{}",
+                    TAGS[i - 1]->_combo, TAGS[i - 1]->_text, ansi_style::RESET
+                );
+            else for (size_t i {count}; i > 0; --i)
+                this->_cached_tag += '[' + TAGS[i - 1]->_text + ']';
+
+            this->_is_cached = true;
+            this->_cached_tag += ": ";
+        }
+
     public:
         explicit log_tag(std::string text) noexcept : _text {std::move(text)} {}
 
@@ -202,23 +233,27 @@ namespace zen {
             , _FROM {from}
         {}
 
+        void set_text(std::string text) noexcept
+        {
+            this->_text = std::move(text);
+            this->_is_cached = false;
+        }
+
+        void set_from(const log_tag* from) noexcept
+        {
+            this->_FROM = from;
+            this->_is_cached = false;
+        }
+
         friend inline std::ostream& operator << (std::ostream& os, const log_tag& tag) noexcept
         {
-            std::stack<const log_tag*> tags;
-            for (const log_tag* CURR = &tag; CURR != nullptr; CURR = CURR->_FROM) tags.push(CURR);
-
-            while (!tags.empty())
-            {
-                os << tags.top()->_combo << '[' << tags.top()->_text << ']' << ANSI_RESET;
-                tags.pop();
-            }
-
-            return os << " : ";
+            tag._ensure_cache(is_terminal(os));
+            return os << tag._cached_tag;
         }
 
         template <typename Err>
             requires std::is_base_of_v<std::exception, Err>
-        static inline log_tag err_tag()
+        [[nodiscard]] static inline log_tag err_tag()
         {
             std::string_view _type = _get_type<Err>();
             if (_type.starts_with("std::")) _type.remove_prefix(5);
@@ -226,7 +261,7 @@ namespace zen {
             return log_tag {_capitalize(_type), ansi_color::RED};
         }
 
-        static inline log_tag time_tag()
+        [[nodiscard]] static inline log_tag time_tag()
         {
             const std::chrono::time_point NOW = std::chrono::system_clock::now();
 
@@ -236,30 +271,23 @@ namespace zen {
             };
         }
 
+        [[nodiscard]] static inline log_tag source_location_tag(std::source_location loc)
+        {
+            return log_tag {
+                std::format("{}:{}", loc.file_name(), loc.line()),
+                ansi_color::WHITE & ansi_style::DIM
+            };
+        }
+
+        [[nodiscard]] inline constexpr ansi_gaurd& log(log_lvl lvl)  const noexcept
+        {
+            return logger::log(lvl) << (*this);
+        }
+
         [[nodiscard]] inline constexpr ansi_gaurd& dbg()  const noexcept { return zen::dbg()  << (*this); }
         [[nodiscard]] inline constexpr ansi_gaurd& info() const noexcept { return zen::info() << (*this); }
         [[nodiscard]] inline constexpr ansi_gaurd& warn() const noexcept { return zen::warn() << (*this); }
         [[nodiscard]] inline constexpr ansi_gaurd& err()  const noexcept { return zen::err()  << (*this); }
     };
-
-    // panic's and aborts the program if the condition is false
-    inline void assert(bool condition, std::string_view message)
-    {
-        static const log_tag ASSERT_TAG {"ASSERT", ansi_color::BG_EX_RED};
-        if (condition) return;
-
-        err() << ASSERT_TAG << message << '\n';
-        std::abort();
-    }
-
-    // panic's and aborts the program if the condition is false
-    inline void assert(bool condition, std::string_view message, const log_tag& tag)
-    {
-        static const log_tag ASSERT_TAG {"[ASSERT]", ansi_color::BG_EX_RED};
-        if (condition) return;
-
-        err() << ASSERT_TAG << tag << message << '\n';
-        std::abort();
-    }
 
 } // namespace zen

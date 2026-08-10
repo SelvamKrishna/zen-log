@@ -9,8 +9,6 @@
 
 namespace zen {
 
-    inline static constexpr std::string_view ANSI_RESET = "\033[0m";
-
     struct ansi_rgb final {
     private:
         uint8_t _r, _g, _b;
@@ -171,24 +169,14 @@ namespace zen {
     public:
         explicit ansi_gaurd(std::ostream& os = std::cout) noexcept
             : _os {os}, _IS_TERMINAL {is_terminal(os)}
-        { if (this->_IS_TERMINAL) this->_os << ANSI_RESET; }
+        { if (this->_IS_TERMINAL) this->_os << ansi_style::RESET; }
 
         ~ansi_gaurd() noexcept
         {
-            if (this->_IS_TERMINAL) this->_os << ANSI_RESET << std::endl;
-            else this->_os << '\n';
+            this->_os << ansi_style::RESET << std::endl;
         }
 
         [[nodiscard]] std::ostream& os() noexcept { return this->_os; }
-
-        ansi_gaurd& operator << (std::string_view text) noexcept
-        {
-            this->_os << text;
-            return *this;
-        }
-
-        template <ansi_type T>
-        ansi_gaurd& operator << (const T& _) noexcept { return *this; }
 
         template <printable T>
         ansi_gaurd& operator << (const T& data) noexcept
