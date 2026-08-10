@@ -2,21 +2,12 @@
 
 #include <array>
 #include <format>
-#include <iostream>
 #include <string>
+#include <iostream>
+
+#include <zen/log/_utils.hpp>
 
 namespace zen {
-
-    inline static constexpr std::string_view ANSI_RESET = "\033[0m";
-
-    struct ansi_gaurd final {
-    private:
-        std::ostream& _os;
-
-    public:
-        explicit ansi_gaurd(std::ostream& os = std::cout) noexcept : _os {os} { this->_os << ANSI_RESET; }
-        ~ansi_gaurd() noexcept { this->_os << ANSI_RESET << std::endl; }
-    };
 
     struct ansi_rgb final {
     private:
@@ -100,6 +91,7 @@ namespace zen {
     template  <ansi_type T>
     inline std::ostream& operator << (std::ostream& os, const T& code) noexcept
     {
+        if (!is_terminal(os)) return os;
         return os << "\033[" << static_cast<int>(code) << 'm';
     }
 
@@ -109,11 +101,16 @@ namespace zen {
         std::array<int, 4> _codes;
 
     public:
-        explicit constexpr _ansi_combo(int c0) noexcept
+        constexpr _ansi_combo(int c0) noexcept
             : _codes { c0, INVALID_CODE, INVALID_CODE, INVALID_CODE }
         {}
 
-        explicit constexpr _ansi_combo(int c0, int c1) noexcept
+        template <ansi_type T>
+        constexpr _ansi_combo(T val) noexcept
+            : _codes { static_cast<int>(val), INVALID_CODE, INVALID_CODE, INVALID_CODE }
+        {}
+
+        constexpr _ansi_combo(int c0, int c1) noexcept
             : _codes { c0, c1, INVALID_CODE, INVALID_CODE }
         {}
 
@@ -132,9 +129,10 @@ namespace zen {
             return combo;
         }
 
-        [[nodiscard]] std::string build() const noexcept
+        [[nodiscard]] std::string build(bool with_color = true) const noexcept
         {
             if (this->_codes[0] == INVALID_CODE) return "";
+            if (!with_color) return "";
 
             std::string result = "\033[" + std::to_string(this->_codes[0]);
 
@@ -157,37 +155,52 @@ namespace zen {
 
     inline std::ostream& operator << (std::ostream& os, const _ansi_combo& combo)
     {
-        return os << combo.build();
+        return os << combo.build(is_terminal(os));
     }
+
+    template <typename T>
+    concept printable = requires (T text) { std::cout << text; };
+
+    struct ansi_gaurd final {
+    private:
+        std::ostream& _os;
+        const bool _IS_TERMINAL {false};
+
+    public:
+        explicit ansi_gaurd(std::ostream& os = std::cout) noexcept
+            : _os {os}, _IS_TERMINAL {is_terminal(os)}
+        { if (this->_IS_TERMINAL) this->_os << ansi_style::RESET; }
+
+        ~ansi_gaurd() noexcept
+        {
+            this->_os << ansi_style::RESET << std::endl;
+        }
+
+        [[nodiscard]] std::ostream& os() noexcept { return this->_os; }
+
+        template <printable T>
+        ansi_gaurd& operator << (const T& data) noexcept
+        {
+            this->_os << data;
+            return *this;
+        }
+    };
+
 
 } // namespace zen
 
-template <>
-struct std::formatter<::zen::ansi_style> {
-    constexpr auto parse(std::format_parse_context& ctx) { return ctx.begin(); }
+#define _FORMATTER_IMPL(_type, ...) \
+    template <> \
+    struct std::formatter<_type> { \
+        constexpr auto parse(std::format_parse_context& ctx) { return ctx.begin(); } \
+        auto format(const _type& type, std::format_context& ctx) const \
+        { \
+            return std::format_to(ctx.out(), __VA_ARGS__); \
+        } \
+    }; \
 
-    auto format(const ::zen::ansi_style& code, std::format_context& ctx) const
-    {
-        return std::format_to(ctx.out(), "\033[{}m", static_cast<int>(code));
-    }
-};
+_FORMATTER_IMPL(zen::ansi_style, "\033[{}m", static_cast<int>(type));
+_FORMATTER_IMPL(zen::ansi_color, "\033[{}m", static_cast<int>(type));
+_FORMATTER_IMPL(zen::_ansi_combo, "{}", type.build());
 
-template <>
-struct std::formatter<::zen::ansi_color> {
-    constexpr auto parse(std::format_parse_context& ctx) { return ctx.begin(); }
-
-    auto format(const ::zen::ansi_color& code, std::format_context& ctx) const
-    {
-        return std::format_to(ctx.out(), "\033[{}m", static_cast<int>(code));
-    }
-};
-
-template <>
-struct std::formatter<::zen::_ansi_combo> {
-    constexpr auto parse(std::format_parse_context& ctx) { return ctx.begin(); }
-
-    auto format(const ::zen::_ansi_combo& combo, std::format_context& ctx) const
-    {
-        return std::format_to(ctx.out(), "{}", combo.build());
-    }
-};
+#undef _FORMATTER_IMPL
