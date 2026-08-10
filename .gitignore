@@ -15,3 +15,6 @@ compile_flags.txt
 *.VC.db
 
 CHANGES.txt
+
+makefile
+*.log
